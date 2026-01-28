@@ -25,14 +25,14 @@ jobs:
         fetch-depth: 0
         
     - name: Initialize workspace
-      shell: powershell
+      shell: pwsh
       run: |
         Write-Host "🚀 Initializing CI workspace..." -ForegroundColor Cyan
         
         # Create project structure
         $folders = @("src", "tests", "docs", "scripts", "build")
         foreach ($folder in $folders) {
-          New-Item -ItemType Directory -Path $folder -Force
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
           Write-Host "Created directory: $folder"
         }
         
@@ -45,15 +45,16 @@ jobs:
         
         foreach ($dir in $fileTypes.Keys) {
           foreach ($file in $fileTypes[$dir]) {
-            $content = "# Auto-generated at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-            $content | Out-File -FilePath "$dir/$file" -Encoding UTF8
+            $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+            "# Auto-generated at $timestamp" | Out-File -FilePath "$dir/$file" -Encoding UTF8
           }
         }
         
-        Write-Host "✅ Workspace ready with $(Get-ChildItem -Recurse -File | Measure-Object).Count files"
+        $fileCount = (Get-ChildItem -Recurse -File | Measure-Object).Count
+        Write-Host "✅ Workspace ready with $fileCount files"
         
     - name: Dependencies phase
-      shell: powershell
+      shell: pwsh
       run: |
         Write-Host "📦 Simulating dependencies installation..." -ForegroundColor Magenta
         
@@ -65,7 +66,8 @@ jobs:
         )
         
         foreach ($pm in $packageManagers) {
-          Write-Host "`n🔧 $($pm.Name)..." -ForegroundColor Yellow
+          $nl = [Environment]::NewLine
+          Write-Host "$nl🔧 $($pm.Name)..." -ForegroundColor Yellow
           
           # Create fake package files
           if ($pm.Name -eq "npm") {
@@ -87,7 +89,7 @@ jobs:
               $percent = [math]::Round(($i / $pm.Duration) * 100)
               Write-Host "  Progress: $percent%"
             }
-            Start-Sleep -Seconds 1
+            Start-Sleep -Milliseconds 100
           }
           
           # Generate success message
@@ -100,21 +102,24 @@ jobs:
         $vulns = Get-Random -Minimum 0 -Maximum 3
         $reportDate = Get-Date -Format 'yyyy-MM-dd'
         
-        "Dependencies Report" | Out-File -FilePath "dependencies.md"
-        "===================" | Out-File -FilePath "dependencies.md" -Append
-        "Total packages: $totalPkgs" | Out-File -FilePath "dependencies.md" -Append
-        "Security vulnerabilities: $vulns" | Out-File -FilePath "dependencies.md" -Append
-        "Last updated: $reportDate" | Out-File -FilePath "dependencies.md" -Append
-        "" | Out-File -FilePath "dependencies.md" -Append
-        "Top packages:" | Out-File -FilePath "dependencies.md" -Append
-        "- lodash@4.17.21" | Out-File -FilePath "dependencies.md" -Append
-        "- axios@1.3.0" | Out-File -FilePath "dependencies.md" -Append
-        "- express@4.18.0" | Out-File -FilePath "dependencies.md" -Append
-        "- pytest@7.3.0" | Out-File -FilePath "dependencies.md" -Append
-        "- black@23.3.0" | Out-File -FilePath "dependencies.md" -Append
+        $reportLines = @(
+          "Dependencies Report",
+          "===================",
+          "Total packages: $totalPkgs",
+          "Security vulnerabilities: $vulns",
+          "Last updated: $reportDate",
+          "",
+          "Top packages:",
+          "- lodash@4.17.21",
+          "- axios@1.3.0",
+          "- express@4.18.0",
+          "- pytest@7.3.0",
+          "- black@23.3.0"
+        )
+        $reportLines | Out-File -FilePath "dependencies.md"
         
     - name: Build phase
-      shell: powershell
+      shell: pwsh
       run: |
         Write-Host "🔨 Build phase..." -ForegroundColor Blue
         
@@ -129,7 +134,8 @@ jobs:
         
         $phaseIndex = 1
         foreach ($phase in $phases) {
-          Write-Host "`n[$phaseIndex/$($phases.Count)] $phase" -ForegroundColor Cyan
+          $nl = [Environment]::NewLine
+          Write-Host "$nl[$phaseIndex/$($phases.Count)] $phase" -ForegroundColor Cyan
           
           $duration = Get-Random -Minimum 8 -Maximum 25
           for ($i = 0; $i -lt $duration; $i++) {
@@ -141,7 +147,7 @@ jobs:
               $percent = [math]::Round(($i / $duration) * 100)
               Write-Host "  Processing: $processed/$total files ($percent%)"
             }
-            Start-Sleep -Seconds 1
+            Start-Sleep -Milliseconds 100
           }
           
           $phaseIndex++
@@ -155,7 +161,8 @@ jobs:
           "test-results.json" = Get-Random -Minimum 128 -Maximum 512
         }
         
-        Write-Host "`n📁 Build artifacts:" -ForegroundColor Green
+        $nl = [Environment]::NewLine
+        Write-Host "$nl📁 Build artifacts:" -ForegroundColor Green
         foreach ($artifact in $artifacts.Keys) {
           Write-Host "  $artifact - $($artifacts[$artifact]) KB"
           # Create dummy file
@@ -164,7 +171,7 @@ jobs:
         }
         
     - name: Test phase
-      shell: powershell
+      shell: pwsh
       run: |
         Write-Host "🧪 Running tests..." -ForegroundColor Yellow
         
@@ -177,7 +184,8 @@ jobs:
         
         $results = @()
         foreach ($suite in $testSuites) {
-          Write-Host "`n▶ $($suite.Name) ($($suite.Count) tests)" -ForegroundColor Magenta
+          $nl = [Environment]::NewLine
+          Write-Host "$nl▶ $($suite.Name) ($($suite.Count) tests)" -ForegroundColor Magenta
           
           $passed = [math]::Round($suite.Count * 0.9)
           $failed = $suite.Count - $passed
@@ -188,7 +196,7 @@ jobs:
               $current = [math]::Min($suite.Count, [math]::Round(($i / $suite.Duration) * $suite.Count))
               Write-Host "  Running: $current/$($suite.Count) tests"
             }
-            Start-Sleep -Seconds 1
+            Start-Sleep -Milliseconds 100
           }
           
           # Generate test results
@@ -212,18 +220,20 @@ jobs:
         $totalPassed = ($results | Measure-Object -Property Passed -Sum).Sum
         $coverage = Get-Random -Minimum 85 -Maximum 99
         
-        Write-Host "`n📊 Test Summary:" -ForegroundColor Green
+        $nl = [Environment]::NewLine
+        Write-Host "$nl📊 Test Summary:" -ForegroundColor Green
         Write-Host "  Total tests: $totalTests"
-        Write-Host "  Passed: $totalPassed ($([math]::Round(($totalPassed/$totalTests)*100))%)"
+        $passRate = [math]::Round(($totalPassed/$totalTests)*100)
+        Write-Host "  Passed: $totalPassed ($passRate%)"
         Write-Host "  Code coverage: ${coverage}%"
         
     - name: Cleanup phase
-      shell: powershell
+      shell: pwsh
       run: |
         Write-Host "🧹 Cleanup..." -ForegroundColor Gray
         
         # Remove temporary files
-        $tempFiles = @("*.tmp", "*.log", "*.cache", "node_modules", "__pycache__")
+        $tempFiles = @("*.tmp", "*.log", "*.cache")
         $totalRemoved = 0
         
         foreach ($pattern in $tempFiles) {
@@ -240,31 +250,48 @@ jobs:
         
         # Generate final report
         $runId = "${{ github.run_id }}"
-        $simType = "${{ github.event.inputs.simulation_type || 'full' }}"
+        $simType = "${{ github.event.inputs.simulation_type }}"
+        if ([string]::IsNullOrEmpty($simType)) { $simType = "full" }
         $duration = Get-Random -Minimum 60 -Maximum 90
         $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTCzzz'
         
-        "CI/CD Simulation Report" | Out-File -FilePath "simulation_report.md"
-        "======================" | Out-File -FilePath "simulation_report.md" -Append
-        "Run ID: $runId" | Out-File -FilePath "simulation_report.md" -Append
-        "Simulation: $simType" | Out-File -FilePath "simulation_report.md" -Append
-        "Duration: ~$duration minutes" | Out-File -FilePath "simulation_report.md" -Append
-        "Status: SUCCESS" | Out-File -FilePath "simulation_report.md" -Append
-        "" | Out-File -FilePath "simulation_report.md" -Append
-        "Summary:" | Out-File -FilePath "simulation_report.md" -Append
-        "- Workspace initialized with multiple projects" | Out-File -FilePath "simulation_report.md" -Append
-        "- Dependencies installed successfully" | Out-File -FilePath "simulation_report.md" -Append
-        "- Build completed with 0 errors" | Out-File -FilePath "simulation_report.md" -Append
-        "- All tests passed" | Out-File -FilePath "simulation_report.md" -Append
-        "" | Out-File -FilePath "simulation_report.md" -Append
-        "Generated: $timestamp" | Out-File -FilePath "simulation_report.md" -Append
+        $reportLines = @(
+          "CI/CD Simulation Report",
+          "======================",
+          "Run ID: $runId",
+          "Simulation: $simType",
+          "Duration: ~$duration minutes",
+          "Status: SUCCESS",
+          "",
+          "Summary:",
+          "- Workspace initialized with multiple projects",
+          "- Dependencies installed successfully",
+          "- Build completed with 0 errors",
+          "- All tests passed",
+          "",
+          "Generated: $timestamp"
+        )
+        $reportLines | Out-File -FilePath "simulation_report.md"
         
         # Upload artifacts
         Write-Host "📤 Archiving results..."
-        Compress-Archive -Path "*.json", "*.md", "*.zip", "*.pdf" -DestinationPath "build_artifacts.zip" -Force
+        
+        $filesToArchive = @()
+        $filesToArchive += Get-ChildItem -Filter "*.json" -ErrorAction SilentlyContinue
+        $filesToArchive += Get-ChildItem -Filter "*.md" -ErrorAction SilentlyContinue
+        $filesToArchive += Get-ChildItem -Filter "*.zip" -ErrorAction SilentlyContinue
+        $filesToArchive += Get-ChildItem -Filter "*.pdf" -ErrorAction SilentlyContinue
+        
+        if ($filesToArchive.Count -gt 0) {
+          Compress-Archive -Path $filesToArchive -DestinationPath "build_artifacts.zip" -Force
+          Write-Host "✅ Archived $($filesToArchive.Count) files"
+        } else {
+          Write-Host "⚠️ No files to archive"
+        }
         
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: simulation-results
         path: |
@@ -272,3 +299,4 @@ jobs:
           *.json
           *.md
         retention-days: 1
+        if-no-files-found: warn
