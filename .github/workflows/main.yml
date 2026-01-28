@@ -69,17 +69,16 @@ jobs:
           
           # Create fake package files
           if ($pm.Name -eq "npm") {
-            @"
-            {
-              "name": "simulation-project",
-              "version": "1.0.0",
-              "dependencies": {
-                "express": "^4.18.0",
-                "axios": "^1.3.0",
-                "lodash": "^4.17.21"
+            $packageJson = @{
+              name = "simulation-project"
+              version = "1.0.0"
+              dependencies = @{
+                express = "^4.18.0"
+                axios = "^1.3.0"
+                lodash = "^4.17.21"
               }
             }
-            "@ | Out-File -FilePath "package.json" -Encoding UTF8
+            $packageJson | ConvertTo-Json -Depth 3 | Out-File -FilePath "package.json" -Encoding UTF8
           }
           
           # Simulate installation process
@@ -97,20 +96,23 @@ jobs:
         }
         
         # Generate dependency report
-        @"
-        Dependencies Report
-        ===================
-        Total packages: $(Get-Random -Minimum 30 -Maximum 100)
-        Security vulnerabilities: $(Get-Random -Minimum 0 -Maximum 3)
-        Last updated: $(Get-Date -Format 'yyyy-MM-dd')
+        $totalPkgs = Get-Random -Minimum 30 -Maximum 100
+        $vulns = Get-Random -Minimum 0 -Maximum 3
+        $reportDate = Get-Date -Format 'yyyy-MM-dd'
         
-        Top packages:
-        - lodash@4.17.21
-        - axios@1.3.0
-        - express@4.18.0
-        - pytest@7.3.0
-        - black@23.3.0
-        "@ | Out-File -FilePath "dependencies.md"
+        $report = "Dependencies Report`n"
+        $report += "===================`n"
+        $report += "Total packages: $totalPkgs`n"
+        $report += "Security vulnerabilities: $vulns`n"
+        $report += "Last updated: $reportDate`n`n"
+        $report += "Top packages:`n"
+        $report += "- lodash@4.17.21`n"
+        $report += "- axios@1.3.0`n"
+        $report += "- express@4.18.0`n"
+        $report += "- pytest@7.3.0`n"
+        $report += "- black@23.3.0"
+        
+        $report | Out-File -FilePath "dependencies.md"
         
     - name: Build phase
       shell: powershell
@@ -178,7 +180,7 @@ jobs:
         foreach ($suite in $testSuites) {
           Write-Host "`n▶ $($suite.Name) ($($suite.Count) tests)" -ForegroundColor Magenta
           
-          $passed = [math]::Round($suite.Count * 0.9)  # 90% pass rate
+          $passed = [math]::Round($suite.Count * 0.9)
           $failed = $suite.Count - $passed
           
           # Simulate test execution
@@ -238,22 +240,25 @@ jobs:
         Write-Host "✅ Removed $totalRemoved temporary files"
         
         # Generate final report
-        @"
-        CI/CD Simulation Report
-        ======================
-        Run ID: ${{ github.run_id }}
-        Simulation: ${{ github.event.inputs.simulation_type || 'full' }}
-        Duration: ~$(Get-Random -Minimum 60 -Maximum 90) minutes
-        Status: SUCCESS
+        $runId = "${{ github.run_id }}"
+        $simType = "${{ github.event.inputs.simulation_type || 'full' }}"
+        $duration = Get-Random -Minimum 60 -Maximum 90
+        $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTCzzz'
         
-        Summary:
-        - Workspace initialized with multiple projects
-        - Dependencies installed successfully
-        - Build completed with 0 errors
-        - All tests passed
+        $finalReport = "CI/CD Simulation Report`n"
+        $finalReport += "======================`n"
+        $finalReport += "Run ID: $runId`n"
+        $finalReport += "Simulation: $simType`n"
+        $finalReport += "Duration: ~$duration minutes`n"
+        $finalReport += "Status: SUCCESS`n`n"
+        $finalReport += "Summary:`n"
+        $finalReport += "- Workspace initialized with multiple projects`n"
+        $finalReport += "- Dependencies installed successfully`n"
+        $finalReport += "- Build completed with 0 errors`n"
+        $finalReport += "- All tests passed`n`n"
+        $finalReport += "Generated: $timestamp"
         
-        Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTCzzz')
-        "@ | Out-File -FilePath "simulation_report.md"
+        $finalReport | Out-File -FilePath "simulation_report.md"
         
         # Upload artifacts
         Write-Host "📤 Archiving results..."
