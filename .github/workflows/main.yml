@@ -65,7 +65,7 @@ jobs:
         )
         
         foreach ($pm in $packageManagers) {
-          Write-Host "`n🔧 $($pm.Name)..." -ForegroundColor Yellow
+          Write-Host "``n🔧 $($pm.Name)..." -ForegroundColor Yellow
           
           # Create fake package files
           if ($pm.Name -eq "npm") {
@@ -100,19 +100,21 @@ jobs:
         $vulns = Get-Random -Minimum 0 -Maximum 3
         $reportDate = Get-Date -Format 'yyyy-MM-dd'
         
-        $report = "Dependencies Report" + [Environment]::NewLine
-        $report += "===================" + [Environment]::NewLine
-        $report += "Total packages: $totalPkgs" + [Environment]::NewLine
-        $report += "Security vulnerabilities: $vulns" + [Environment]::NewLine
-        $report += "Last updated: $reportDate" + [Environment]::NewLine + [Environment]::NewLine
-        $report += "Top packages:" + [Environment]::NewLine
-        $report += "- lodash@4.17.21" + [Environment]::NewLine
-        $report += "- axios@1.3.0" + [Environment]::NewLine
-        $report += "- express@4.18.0" + [Environment]::NewLine
-        $report += "- pytest@7.3.0" + [Environment]::NewLine
-        $report += "- black@23.3.0"
-        
-        $report | Out-File -FilePath "dependencies.md"
+        $reportLines = @(
+          "Dependencies Report",
+          "===================",
+          "Total packages: $totalPkgs",
+          "Security vulnerabilities: $vulns",
+          "Last updated: $reportDate",
+          "",
+          "Top packages:",
+          "- lodash@4.17.21",
+          "- axios@1.3.0",
+          "- express@4.18.0",
+          "- pytest@7.3.0",
+          "- black@23.3.0"
+        )
+        $reportLines -join "``n" | Out-File -FilePath "dependencies.md"
         
     - name: Build phase
       shell: powershell
@@ -130,7 +132,7 @@ jobs:
         
         $phaseIndex = 1
         foreach ($phase in $phases) {
-          Write-Host "`n[$phaseIndex/$($phases.Count)] $phase" -ForegroundColor Cyan
+          Write-Host "``n[$phaseIndex/$($phases.Count)] $phase" -ForegroundColor Cyan
           
           $duration = Get-Random -Minimum 8 -Maximum 25
           for ($i = 0; $i -lt $duration; $i++) {
@@ -156,7 +158,7 @@ jobs:
           "test-results.json" = Get-Random -Minimum 128 -Maximum 512
         }
         
-        Write-Host "`n📁 Build artifacts:" -ForegroundColor Green
+        Write-Host "``n📁 Build artifacts:" -ForegroundColor Green
         foreach ($artifact in $artifacts.Keys) {
           Write-Host "  $artifact - $($artifacts[$artifact]) KB"
           # Create dummy file
@@ -178,7 +180,7 @@ jobs:
         
         $results = @()
         foreach ($suite in $testSuites) {
-          Write-Host "`n▶ $($suite.Name) ($($suite.Count) tests)" -ForegroundColor Magenta
+          Write-Host "``n▶ $($suite.Name) ($($suite.Count) tests)" -ForegroundColor Magenta
           
           $passed = [math]::Round($suite.Count * 0.9)
           $failed = $suite.Count - $passed
@@ -213,7 +215,7 @@ jobs:
         $totalPassed = ($results | Measure-Object -Property Passed -Sum).Sum
         $coverage = Get-Random -Minimum 85 -Maximum 99
         
-        Write-Host "`n📊 Test Summary:" -ForegroundColor Green
+        Write-Host "``n📊 Test Summary:" -ForegroundColor Green
         Write-Host "  Total tests: $totalTests"
         Write-Host "  Passed: $totalPassed ($([math]::Round(($totalPassed/$totalTests)*100))%)"
         Write-Host "  Code coverage: ${coverage}%"
@@ -245,20 +247,23 @@ jobs:
         $duration = Get-Random -Minimum 60 -Maximum 90
         $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTCzzz'
         
-        $finalReport = "CI/CD Simulation Report" + [Environment]::NewLine
-        $finalReport += "======================" + [Environment]::NewLine
-        $finalReport += "Run ID: $runId" + [Environment]::NewLine
-        $finalReport += "Simulation: $simType" + [Environment]::NewLine
-        $finalReport += "Duration: ~$duration minutes" + [Environment]::NewLine
-        $finalReport += "Status: SUCCESS" + [Environment]::NewLine + [Environment]::NewLine
-        $finalReport += "Summary:" + [Environment]::NewLine
-        $finalReport += "- Workspace initialized with multiple projects" + [Environment]::NewLine
-        $finalReport += "- Dependencies installed successfully" + [Environment]::NewLine
-        $finalReport += "- Build completed with 0 errors" + [Environment]::NewLine
-        $finalReport += "- All tests passed" + [Environment]::NewLine + [Environment]::NewLine
-        $finalReport += "Generated: $timestamp"
-        
-        $finalReport | Out-File -FilePath "simulation_report.md"
+        $reportLines = @(
+          "CI/CD Simulation Report",
+          "======================",
+          "Run ID: $runId",
+          "Simulation: $simType",
+          "Duration: ~$duration minutes",
+          "Status: SUCCESS",
+          "",
+          "Summary:",
+          "- Workspace initialized with multiple projects",
+          "- Dependencies installed successfully",
+          "- Build completed with 0 errors",
+          "- All tests passed",
+          "",
+          "Generated: $timestamp"
+        )
+        $reportLines -join "``n" | Out-File -FilePath "simulation_report.md"
         
         # Upload artifacts
         Write-Host "📤 Archiving results..."
