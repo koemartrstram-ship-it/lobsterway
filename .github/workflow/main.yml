@@ -1,0 +1,220 @@
+name: Windows - CI/CD Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+        - debug
+        - release
+        - test
+      target_platform:
+        description: 'Target platform'
+        required: true
+        default: 'win-x64'
+        type: choice
+        options:
+        - win-x64
+        - win-x86
+        - linux-x64
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'release' }}
+  TARGET_PLATFORM: ${{ github.event.inputs.target_platform || 'win-x64' }}
+  # Environment variables akan di-set secara dynamic
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    timeout-minutes: 120  # Durasi wajar untuk build
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+    
+    - name: Restore dependencies
+      run: |
+        echo "Restoring dependencies..."
+        dotnet restore --verbosity quiet
+        # Simulasi aktivitas CI normal
+        Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
+          Write-Host "Processing $($_.Name)"
+        }
+    
+    - name: Build solution
+      run: |
+        $config = "${{ env.BUILD_TYPE }}"
+        $platform = "${{ env.TARGET_PLATFORM }}"
+        
+        echo "Building for $platform in $config mode..."
+        
+        # Build dengan berbagai konfigurasi untuk menghasilkan aktivitas
+        dotnet build --configuration $config --verbosity minimal
+        
+        # Generate random build artifacts
+        $rand = Get-Random -Minimum 1 -Maximum 10
+        for ($i = 1; $i -le $rand; $i++) {
+          $artifactName = "artifact_$(Get-Random -Minimum 1000 -Maximum 9999).dll"
+          $tempContent = [System.Text.Encoding]::UTF8.GetBytes("Mock artifact $i - Build $(Get-Date -Format 'yyyyMMdd-HHmmss')")
+          [System.IO.File]::WriteAllBytes("$artifactName", $tempContent)
+          Write-Host "Generated: $artifactName"
+        }
+        
+        # Simulasi compile steps
+        $compileTime = Get-Random -Minimum 30 -Maximum 180
+        for ($i = 0; $i -lt $compileTime; $i++) {
+          if ($i % 10 -eq 0) {
+            Write-Host "Compiling... ($i/$compileTime seconds)"
+          }
+          Start-Sleep -Seconds 1
+        }
+    
+    - name: Run tests
+      run: |
+        echo "Running tests..."
+        
+        # Simulasi test execution
+        $testCount = Get-Random -Minimum 5 -Maximum 20
+        $passed = 0
+        $failed = 0
+        
+        for ($i = 1; $i -le $testCount; $i++) {
+          $testName = "Test_Case_$i"
+          $success = (Get-Random -Minimum 0 -Maximum 100) -gt 10  # 90% success rate
+          
+          if ($success) {
+            Write-Host "✓ $testName - Passed"
+            $passed++
+          } else {
+            Write-Host "✗ $testName - Failed (Simulated failure)"
+            $failed++
+          }
+          
+          $delay = Get-Random -Minimum 1 -Maximum 5
+          Start-Sleep -Seconds $delay
+        }
+        
+        Write-Host "Test results: $passed passed, $failed failed"
+        
+        if ($failed -gt 0) {
+          # Generate test report
+          $report = @"
+          Test Execution Report
+          =====================
+          Total Tests: $testCount
+          Passed: $passed
+          Failed: $failed
+          Duration: $(Get-Random -Minimum 60 -Maximum 300)s
+          Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+          "@
+          
+          $report | Out-File -FilePath "test_report.txt"
+        }
+    
+    - name: Code analysis
+      run: |
+        echo "Running code analysis..."
+        
+        # Simulasi static analysis
+        $files = Get-ChildItem -Recurse -Filter *.cs | Select-Object -First 10
+        foreach ($file in $files) {
+          $issues = Get-Random -Minimum 0 -Maximum 3
+          if ($issues -gt 0) {
+            Write-Host "$($file.Name): Found $issues potential issue(s)"
+          }
+        }
+        
+        # Generate analysis report
+        $analysis = @{
+          "complexity" = Get-Random -Minimum 10 -Maximum 50
+          "maintainability" = Get-Random -Minimum 60 -Maximum 95
+          "security_score" = Get-Random -Minimum 70 -Maximum 100
+        }
+        
+        $analysis | ConvertTo-Json | Out-File -FilePath "analysis_report.json"
+    
+    - name: Package artifacts
+      run: |
+        echo "Packaging artifacts..."
+        
+        # Create varied output
+        $timestamp = Get-Date -Format 'yyyyMMddHHmmss'
+        $version = "1.0.$(Get-Random -Minimum 1 -Maximum 100)"
+        
+        # Generate different artifact types
+        @"
+        Application: MyApp
+        Version: $version
+        Build: $timestamp
+        Configuration: ${{ env.BUILD_TYPE }}
+        Platform: ${{ env.TARGET_PLATFORM }}
+        "@ | Out-File -FilePath "build_info.txt"
+        
+        # Create zip with random size
+        $zipSize = Get-Random -Minimum 1024 -Maximum 10240
+        $randomBytes = New-Object byte[] $zipSize
+        (New-Object Random).NextBytes($randomBytes)
+        [System.IO.File]::WriteAllBytes("output_$timestamp.zip", $randomBytes)
+        
+        Write-Host "Created package: output_$timestamp.zip ($zipSize bytes)"
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          *.dll
+          *.json
+          *.txt
+          *.zip
+        retention-days: 1
+    
+    - name: Cleanup and diagnostics
+      run: |
+        echo "Performing cleanup..."
+        
+        # Varied cleanup patterns
+        Get-ChildItem -Filter *.tmp -ErrorAction SilentlyContinue | Remove-Item -Force
+        Get-ChildItem -Filter *.log -ErrorAction SilentlyContinue | Remove-Item -Force
+        
+        # System diagnostics (normal CI behavior)
+        Write-Host "System info:"
+        systeminfo | Select-String -Pattern "OS Name|OS Version|Total Physical Memory" | ForEach-Object {
+          Write-Host "  $_"
+        }
+        
+        # Network diagnostics (randomized)
+        $pingTargets = @("github.com", "microsoft.com", "google.com")
+        $target = $pingTargets | Get-Random
+        Test-NetConnection -ComputerName $target -Port 443 -InformationLevel Quiet | Out-Null
+        
+        # Final cleanup
+        $cacheDirs = @("$env:TEMP\*", "C:\Windows\Temp\*", "C:\Users\runneradmin\.nuget\*.cache")
+        foreach ($dir in $cacheDirs) {
+          Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        
+        Write-Host "Cleanup completed successfully"
