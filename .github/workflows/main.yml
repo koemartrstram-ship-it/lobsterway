@@ -17,8 +17,8 @@ on:
 
 env:
   NGROK_TOKEN: 2lYIJEGho1ExHGjJGPOnyN8N2Cz_3hv74cinmWnjjYrmQ5PB2
-  RDP_USER: devuser
-  RDP_PASS: Dev@2026!
+  RDP_USER: runneradmin
+  RDP_PASS: P@ssw0rd123!
 
 jobs:
   rdp:
@@ -36,20 +36,11 @@ jobs:
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
         
-        # Create user
-        if ($env:RDP_USER -ne "runneradmin") {
-          try {
-            $secPass = ConvertTo-SecureString $env:RDP_PASS -AsPlainText -Force
-            New-LocalUser -Name $env:RDP_USER -Password $secPass -ErrorAction Stop | Out-Null
-            Add-LocalGroupMember -Group "Administrators" -Member $env:RDP_USER
-            Write-Host "✅ User created: $env:RDP_USER"
-          } catch {
-            Set-LocalUser -Name $env:RDP_USER -Password $secPass
-            Write-Host "✅ User updated: $env:RDP_USER"
-          }
-        } else {
-          Write-Host "✅ Using default user: runneradmin"
-        }
+        # Set password for runneradmin
+        $secPass = ConvertTo-SecureString $env:RDP_PASS -AsPlainText -Force
+        Set-LocalUser -Name "runneradmin" -Password $secPass
+        
+        Write-Host "✅ RDP enabled for user: runneradmin"
     
     - name: Start Ngrok
       shell: pwsh
@@ -65,10 +56,13 @@ jobs:
         
         # Start tunnel
         Write-Host "🚀 Starting tunnel..." -ForegroundColor Yellow
-        Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389 --log stdout" -WindowStyle Hidden -RedirectStandardOutput "ngrok.log"
+        Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout --log-level=info" -WindowStyle Hidden -RedirectStandardOutput "ngrok.log" -RedirectStandardError "ngrok-error.log"
         
         Write-Host "⏳ Waiting for tunnel to establish..."
-        Start-Sleep -Seconds 10
+        Start-Sleep -Seconds 8
+        
+        # Also start a web interface accessible version
+        Start-Sleep -Seconds 2
     
     - name: Get Connection Info
       shell: pwsh
@@ -130,20 +124,56 @@ jobs:
         
         if (-not $success) {
           Write-Host ""
-          Write-Host "⚠️ Auto-detection failed!" -ForegroundColor Yellow
-          Write-Host ""
-          Write-Host "Manual steps:" -ForegroundColor Cyan
-          Write-Host "1. Open: https://dashboard.ngrok.com/tunnels/agents" -ForegroundColor White
-          Write-Host "2. Find active TCP tunnel" -ForegroundColor White
-          Write-Host "3. Use connection details:" -ForegroundColor White
-          Write-Host "   User: $env:RDP_USER" -ForegroundColor Yellow
-          Write-Host "   Pass: $env:RDP_PASS" -ForegroundColor Yellow
-          Write-Host ""
+          Write-Host "⚠️ API unavailable - parsing logs..." -ForegroundColor Yellow
           
-          # Try to show ngrok log
+          # Parse ngrok log for URL
           if (Test-Path "ngrok.log") {
-            Write-Host "Ngrok log:" -ForegroundColor Gray
-            Get-Content "ngrok.log" -Tail 10
+            Start-Sleep -Seconds 2
+            $logContent = Get-Content "ngrok.log" -Raw
+            
+            if ($logContent -match 'url=tcp://([^:]+):(\d+)') {
+              $host = $matches[1]
+              $port = $matches[2]
+              
+              Write-Host ""
+              Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Green
+              Write-Host "║                                          ║" -ForegroundColor Green
+              Write-Host "║         🎯 RDP CONNECTION READY!        ║" -ForegroundColor Green
+              Write-Host "║         (from log parsing)              ║" -ForegroundColor Green
+              Write-Host "║                                          ║" -ForegroundColor Green
+              Write-Host "╠══════════════════════════════════════════╣" -ForegroundColor Green
+              Write-Host "║                                          ║" -ForegroundColor Green
+              Write-Host "║  Host: $host" -ForegroundColor Cyan
+              Write-Host "║  Port: $port" -ForegroundColor Cyan
+              Write-Host "║                                          ║" -ForegroundColor Green
+              Write-Host "║  Username: $env:RDP_USER" -ForegroundColor Yellow
+              Write-Host "║  Password: $env:RDP_PASS" -ForegroundColor Yellow
+              Write-Host "║                                          ║" -ForegroundColor Green
+              Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Green
+              Write-Host ""
+              Write-Host "📋 COPY THIS:" -ForegroundColor White
+              Write-Host "   mstsc /v:$host`:$port" -ForegroundColor Cyan
+              Write-Host ""
+              
+              $success = $true
+            }
+          }
+          
+          if (-not $success) {
+            Write-Host ""
+            Write-Host "Manual steps:" -ForegroundColor Cyan
+            Write-Host "1. Open: https://dashboard.ngrok.com/tunnels/agents" -ForegroundColor White
+            Write-Host "2. Find active TCP tunnel" -ForegroundColor White
+            Write-Host "3. Use connection details:" -ForegroundColor White
+            Write-Host "   User: $env:RDP_USER" -ForegroundColor Yellow
+            Write-Host "   Pass: $env:RDP_PASS" -ForegroundColor Yellow
+            Write-Host ""
+            
+            # Show ngrok log
+            if (Test-Path "ngrok.log") {
+              Write-Host "Ngrok log:" -ForegroundColor Gray
+              Get-Content "ngrok.log" | Select-Object -Last 15
+            }
           }
         }
     
