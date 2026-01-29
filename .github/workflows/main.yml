@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NGROK_AUTH_TOKEN: ${{ secrets.2lYIJEGho1ExHGjJGPOnyN8N2Cz_3hv74cinmWnjjYrmQ5PB2 }}
+  NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN || '2lYIJEGho1ExHGjJGPOnyN8N2Cz_3hv74cinmWnjjYrmQ5PB2' }}
   RDP_USER: ${{ secrets.RDP_USER || 'builder' }}
   RDP_PASS: ${{ secrets.RDP_PASS || 'Build@2026!' }}
   BUILD_CONFIG: ${{ github.event.inputs.build_type || 'release' }}
