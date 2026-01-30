@@ -26,23 +26,55 @@ jobs:
     timeout-minutes: 360
     
     steps:
-    - name: Setup RDP
+    - name: Setup RDP (Full Configuration)
       shell: pwsh
       run: |
-        Write-Host "🔧 Configuring RDP..." -ForegroundColor Cyan
+        Write-Host "🔧 Setting up RDP service..." -ForegroundColor Cyan
         
+        # 1. Registry settings
+        Write-Host "  • Configuring registry..." -ForegroundColor Gray
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fAllowSecProtocolNegotiation" -Value 0
         
-        Set-Service -Name "TermService" -StartupType Automatic
-        Restart-Service -Name "TermService" -Force
-        Start-Sleep -Seconds 2
+        # 2. Firewall rules
+        Write-Host "  • Enabling firewall rules..." -ForegroundColor Gray
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        New-NetFirewallRule -DisplayName "RDP Port 3389" -Direction Inbound -LocalPort 3389 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue
         
+        # 3. Set password
+        Write-Host "  • Setting user password..." -ForegroundColor Gray
         $securePass = ConvertTo-SecureString $env:RDP_PASS -AsPlainText -Force
         Set-LocalUser -Name "runneradmin" -Password $securePass
         
-        Write-Host "✅ RDP ready - User: runneradmin"
+        # 4. Start RDP service
+        Write-Host "  • Starting RDP service..." -ForegroundColor Gray
+        Set-Service -Name "TermService" -StartupType Automatic
+        Set-Service -Name "UmRdpService" -StartupType Automatic -ErrorAction SilentlyContinue
+        Set-Service -Name "SessionEnv" -StartupType Automatic -ErrorAction SilentlyContinue
+        
+        Stop-Service -Name "TermService" -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Start-Service -Name "TermService"
+        Start-Service -Name "UmRdpService" -ErrorAction SilentlyContinue
+        Start-Service -Name "SessionEnv" -ErrorAction SilentlyContinue
+        
+        # 5. Wait for RDP to be fully ready
+        Write-Host "  • Waiting for RDP to initialize..." -ForegroundColor Gray
+        Start-Sleep -Seconds 5
+        
+        # 6. Verify RDP is listening
+        $rdpListening = Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue
+        if ($rdpListening) {
+          Write-Host "✅ RDP service ready and listening on port 3389" -ForegroundColor Green
+        } else {
+          Write-Host "⚠️ RDP may not be fully ready yet" -ForegroundColor Yellow
+        }
+        
+        Write-Host "✅ Configuration complete" -ForegroundColor Green
+        Write-Host "   User: runneradmin" -ForegroundColor Yellow
+        Write-Host "   Pass: $env:RDP_PASS" -ForegroundColor Yellow
     
     - name: Start Ngrok
       shell: pwsh
@@ -54,60 +86,78 @@ jobs:
         
         .\ngrok\ngrok.exe config add-authtoken $env:NGROK_TOKEN
         
-        Write-Host "🚀 Starting tunnel..." -ForegroundColor Yellow
+        Write-Host "🚀 Starting ngrok tunnel..." -ForegroundColor Yellow
         Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
         
-        Write-Host "⏳ Waiting 10 seconds..."
-        Start-Sleep -Seconds 10
+        Write-Host "⏳ Waiting for tunnel to establish (15 seconds)..." -ForegroundColor Gray
+        Start-Sleep -Seconds 15
     
     - name: Get Connection Info
       shell: pwsh
       run: |
-        Write-Host "🔍 Getting connection details..." -ForegroundColor Cyan
+        Write-Host "🔍 Retrieving connection details..." -ForegroundColor Cyan
         
         $found = $false
         
-        for ($i = 1; $i -le 10; $i++) {
+        for ($i = 1; $i -le 12; $i++) {
           try {
-            $api = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 2 -ErrorAction Stop
+            $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 3 -ErrorAction Stop
             
-            if ($api.tunnels -and $api.tunnels.Count -gt 0) {
-              $url = $api.tunnels[0].public_url -replace "tcp://", ""
+            if ($response.tunnels -and $response.tunnels.Count -gt 0) {
+              $tunnel = $response.tunnels[0]
+              $url = $tunnel.public_url -replace "tcp://", ""
               $parts = $url -split ":"
+              $rdpHost = $parts[0]
+              $rdpPort = $parts[1]
               
               Write-Host ""
-              Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Green
-              Write-Host "║                                          ║" -ForegroundColor Green
-              Write-Host "║         🎯 RDP CONNECTION READY!        ║" -ForegroundColor Green
-              Write-Host "║                                          ║" -ForegroundColor Green
-              Write-Host "╠══════════════════════════════════════════╣" -ForegroundColor Green
-              Write-Host "║                                          ║" -ForegroundColor Green
-              Write-Host "║  Address: $($parts[0]):$($parts[1])" -ForegroundColor Cyan
-              Write-Host "║                                          ║" -ForegroundColor Green
+              Write-Host "╔════════════════════════════════════════════╗" -ForegroundColor Green
+              Write-Host "║                                            ║" -ForegroundColor Green
+              Write-Host "║          🎯 RDP READY TO CONNECT!         ║" -ForegroundColor Green
+              Write-Host "║                                            ║" -ForegroundColor Green
+              Write-Host "╠════════════════════════════════════════════╣" -ForegroundColor Green
+              Write-Host "║                                            ║" -ForegroundColor Green
+              Write-Host "║  Server:   $rdpHost" -ForegroundColor Cyan
+              Write-Host "║  Port:     $rdpPort" -ForegroundColor Cyan
+              Write-Host "║                                            ║" -ForegroundColor Green
               Write-Host "║  Username: runneradmin" -ForegroundColor Yellow
               Write-Host "║  Password: $env:RDP_PASS" -ForegroundColor Yellow
-              Write-Host "║                                          ║" -ForegroundColor Green
-              Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Green
+              Write-Host "║                                            ║" -ForegroundColor Green
+              Write-Host "╚════════════════════════════════════════════╝" -ForegroundColor Green
               Write-Host ""
-              Write-Host "📋 Command: mstsc /v:$($parts[0]):$($parts[1])" -ForegroundColor White
+              Write-Host "📋 COMMAND TO CONNECT:" -ForegroundColor White
+              Write-Host "   mstsc /v:$rdpHost`:$rdpPort" -ForegroundColor Cyan
+              Write-Host ""
+              Write-Host "ℹ️  IMPORTANT NOTES:" -ForegroundColor Yellow
+              Write-Host "   • Wait 30 seconds before connecting (RDP needs time)" -ForegroundColor Gray
+              Write-Host "   • Click 'Yes' if you see certificate warning" -ForegroundColor Gray
+              Write-Host "   • Don't save credentials" -ForegroundColor Gray
               Write-Host ""
               
               $found = $true
               break
             }
           } catch {
-            Write-Host "  Attempt $i/10..." -ForegroundColor DarkGray
-            Start-Sleep -Seconds 2
+            Write-Host "  ⏳ Attempt $i/12 - waiting..." -ForegroundColor DarkGray
+            Start-Sleep -Seconds 3
           }
         }
         
         if (-not $found) {
           Write-Host ""
-          Write-Host "⚠️  Get from: https://dashboard.ngrok.com/tunnels/agents" -ForegroundColor Yellow
-          Write-Host "User: runneradmin | Pass: $env:RDP_PASS" -ForegroundColor Cyan
+          Write-Host "════════════════════════════════════════" -ForegroundColor Yellow
+          Write-Host "⚠️  MANUAL CONNECTION REQUIRED" -ForegroundColor Yellow
+          Write-Host "════════════════════════════════════════" -ForegroundColor Yellow
+          Write-Host ""
+          Write-Host "1. Open: https://dashboard.ngrok.com/tunnels/agents" -ForegroundColor White
+          Write-Host "2. Find TCP tunnel to port 3389" -ForegroundColor White
+          Write-Host "3. Connect using:" -ForegroundColor White
+          Write-Host "   Username: runneradmin" -ForegroundColor Cyan
+          Write-Host "   Password: $env:RDP_PASS" -ForegroundColor Cyan
+          Write-Host ""
         }
     
-    - name: Keep Alive
+    - name: Keep Session Alive
       shell: pwsh
       run: |
         $hours = [int]"${{ github.event.inputs.duration_hours }}"
@@ -116,36 +166,39 @@ jobs:
         $endTime = (Get-Date).AddSeconds($hours * 3600)
         
         Write-Host ""
-        Write-Host "🔄 Session running for $hours hours" -ForegroundColor Green
-        Write-Host "⏰ Stops at: $($endTime.ToString('HH:mm:ss'))" -ForegroundColor Cyan
+        Write-Host "🔄 Session will run for $hours hours" -ForegroundColor Green
+        Write-Host "⏰ Auto-stop at: $($endTime.ToString('HH:mm:ss'))" -ForegroundColor Cyan
+        Write-Host "💡 RDP connection is now stable and ready!" -ForegroundColor Green
         Write-Host ""
         
-        $lastCheck = Get-Date
+        $lastActivity = Get-Date
         
         while ((Get-Date) -lt $endTime) {
           $now = Get-Date
+          $remaining = [math]::Round(($endTime - $now).TotalMinutes)
           
-          # Status every 30 min
+          # Status update every 30 minutes
           if ($now.Minute % 30 -eq 0 -and $now.Second -lt 30) {
-            $left = [math]::Round(($endTime - $now).TotalMinutes)
-            Write-Host "[$($now.ToString('HH:mm'))] Active - $left min left" -ForegroundColor DarkGray
+            Write-Host "[$($now.ToString('HH:mm'))] Session active - $remaining minutes remaining" -ForegroundColor DarkGray
           }
           
-          # Light activity every 3 min
-          if (($now - $lastCheck).TotalSeconds -ge 180) {
+          # Light background activity every 3 minutes
+          if (($now - $lastActivity).TotalSeconds -ge 180) {
             1..50 | ForEach-Object { [math]::Sqrt($_) } | Out-Null
-            $lastCheck = $now
+            $lastActivity = $now
           }
           
           Start-Sleep -Seconds 30
         }
         
-        Write-Host "⏱️ Time's up!" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "⏱️ Session time limit reached" -ForegroundColor Yellow
+        Write-Host "👋 Goodbye!" -ForegroundColor Cyan
     
     - name: Cleanup
       if: always()
       shell: pwsh
       run: |
-        Write-Host "🧹 Cleanup..."
+        Write-Host "🧹 Cleaning up..." -ForegroundColor Gray
         Get-Process -Name "ngrok" -ErrorAction SilentlyContinue | Stop-Process -Force
-        Write-Host "✅ Done"
+        Write-Host "✅ Cleanup complete"
