@@ -26,19 +26,36 @@ jobs:
     timeout-minutes: 360
     
     steps:
-    - name: Setup RDP
+    - name: Setup RDP (Complete)
       shell: pwsh
       run: |
-        Write-Host "🔧 Configuring RDP..." -ForegroundColor Cyan
+        Write-Host "🔧 Configuring RDP service..." -ForegroundColor Cyan
         
+        # 1. Enable RDP in registry
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
         
+        # 2. Enable firewall rules
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        
+        # 3. Make sure RDP service is running
+        Set-Service -Name "TermService" -StartupType Automatic
+        Start-Service -Name "TermService"
+        
+        # 4. Set user password
         $securePass = ConvertTo-SecureString $env:RDP_PASS -AsPlainText -Force
         Set-LocalUser -Name "runneradmin" -Password $securePass
         
-        Write-Host "✅ RDP ready - User: runneradmin"
+        # 5. Disable NLA (Network Level Authentication) for easier connection
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+        
+        # 6. Restart RDP service to apply changes
+        Restart-Service -Name "TermService" -Force
+        Start-Sleep -Seconds 3
+        
+        Write-Host "✅ RDP fully configured and running" -ForegroundColor Green
+        Write-Host "   User: runneradmin" -ForegroundColor Yellow
+        Write-Host "   Pass: $env:RDP_PASS" -ForegroundColor Yellow
     
     - name: Start Ngrok
       shell: pwsh
@@ -53,8 +70,8 @@ jobs:
         Write-Host "🚀 Starting tunnel..." -ForegroundColor Yellow
         Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout --log-level=info" -WindowStyle Hidden -RedirectStandardOutput "ngrok.log" -RedirectStandardError "ngrok-error.log"
         
-        Write-Host "⏳ Initializing (10 seconds)..."
-        Start-Sleep -Seconds 10
+        Write-Host "⏳ Initializing (15 seconds)..."
+        Start-Sleep -Seconds 15
     
     - name: Get Connection Info
       shell: pwsh
@@ -63,8 +80,8 @@ jobs:
         
         $foundConnection = $false
         
-        # Try 1: API Method
-        for ($i = 1; $i -le 8; $i++) {
+        # Try API first
+        for ($i = 1; $i -le 10; $i++) {
           try {
             $apiResponse = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 2 -ErrorAction Stop
             
@@ -87,13 +104,16 @@ jobs:
                 Write-Host "║  Host: $rdpHost" -ForegroundColor Cyan
                 Write-Host "║  Port: $rdpPort" -ForegroundColor Cyan
                 Write-Host "║                                          ║" -ForegroundColor Green
-                Write-Host "║  Username: $env:RDP_USER" -ForegroundColor Yellow
+                Write-Host "║  Username: runneradmin" -ForegroundColor Yellow
                 Write-Host "║  Password: $env:RDP_PASS" -ForegroundColor Yellow
                 Write-Host "║                                          ║" -ForegroundColor Green
                 Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Green
                 Write-Host ""
-                Write-Host "📋 COPY & PASTE:" -ForegroundColor White
+                Write-Host "📋 COPY THIS COMMAND:" -ForegroundColor White
                 Write-Host "   mstsc /v:$rdpHost`:$rdpPort" -ForegroundColor Cyan
+                Write-Host ""
+                Write-Host "⚠️  IMPORTANT: If Windows asks about certificate," -ForegroundColor Yellow
+                Write-Host "   click 'Yes' or 'Connect anyway'" -ForegroundColor Yellow
                 Write-Host ""
                 
                 $foundConnection = $true
@@ -101,12 +121,12 @@ jobs:
               }
             }
           } catch {
-            Write-Host "  ⏳ API attempt $i/8..." -ForegroundColor DarkGray
-            Start-Sleep -Seconds 3
+            Write-Host "  ⏳ Attempt $i/10..." -ForegroundColor DarkGray
+            Start-Sleep -Seconds 2
           }
         }
         
-        # Try 2: Log Parsing Method
+        # Parse log as fallback
         if (-not $foundConnection) {
           Write-Host "⚠️ API unavailable - parsing logs..." -ForegroundColor Yellow
           Start-Sleep -Seconds 3
@@ -129,13 +149,16 @@ jobs:
               Write-Host "║  Host: $rdpHost" -ForegroundColor Cyan
               Write-Host "║  Port: $rdpPort" -ForegroundColor Cyan
               Write-Host "║                                          ║" -ForegroundColor Green
-              Write-Host "║  Username: $env:RDP_USER" -ForegroundColor Yellow
+              Write-Host "║  Username: runneradmin" -ForegroundColor Yellow
               Write-Host "║  Password: $env:RDP_PASS" -ForegroundColor Yellow
               Write-Host "║                                          ║" -ForegroundColor Green
               Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Green
               Write-Host ""
-              Write-Host "📋 COPY & PASTE:" -ForegroundColor White
+              Write-Host "📋 COPY THIS COMMAND:" -ForegroundColor White
               Write-Host "   mstsc /v:$rdpHost`:$rdpPort" -ForegroundColor Cyan
+              Write-Host ""
+              Write-Host "⚠️  IMPORTANT: If Windows asks about certificate," -ForegroundColor Yellow
+              Write-Host "   click 'Yes' or 'Connect anyway'" -ForegroundColor Yellow
               Write-Host ""
               
               $foundConnection = $true
@@ -143,24 +166,20 @@ jobs:
           }
         }
         
-        # Try 3: Show Manual Instructions
+        # Show manual steps if still failed
         if (-not $foundConnection) {
           Write-Host ""
           Write-Host "════════════════════════════════════════" -ForegroundColor Yellow
-          Write-Host "⚠️  MANUAL CONNECTION REQUIRED" -ForegroundColor Yellow
+          Write-Host "⚠️  MANUAL CONNECTION" -ForegroundColor Yellow
           Write-Host "════════════════════════════════════════" -ForegroundColor Yellow
           Write-Host ""
-          Write-Host "1. Open: https://dashboard.ngrok.com/tunnels/agents" -ForegroundColor White
-          Write-Host "2. Look for active TCP tunnel" -ForegroundColor White
-          Write-Host "3. Connect with:" -ForegroundColor White
-          Write-Host "   Username: $env:RDP_USER" -ForegroundColor Cyan
-          Write-Host "   Password: $env:RDP_PASS" -ForegroundColor Cyan
+          Write-Host "1. Go to: https://dashboard.ngrok.com/tunnels/agents" -ForegroundColor White
+          Write-Host "2. Find TCP tunnel to port 3389" -ForegroundColor White
+          Write-Host "3. Copy the address (e.g., X.tcp.ngrok.io:XXXXX)" -ForegroundColor White
+          Write-Host "4. Connect with:" -ForegroundColor White
+          Write-Host "   User: runneradmin" -ForegroundColor Cyan
+          Write-Host "   Pass: $env:RDP_PASS" -ForegroundColor Cyan
           Write-Host ""
-          
-          if (Test-Path "ngrok.log") {
-            Write-Host "Recent ngrok log:" -ForegroundColor Gray
-            Get-Content "ngrok.log" | Select-Object -Last 10 | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
-          }
         }
     
     - name: Keep Alive
@@ -185,12 +204,12 @@ jobs:
           $currentTime = Get-Date
           $minutesLeft = [math]::Round(($stopTime - $currentTime).TotalMinutes)
           
-          # Status log every 30 minutes
+          # Status every 30 minutes
           if ($currentTime.Minute % 30 -eq 0 -and $currentTime.Second -lt $mainLoopInterval) {
-            Write-Host "[$($currentTime.ToString('HH:mm'))] Still active - $minutesLeft min left" -ForegroundColor DarkGray
+            Write-Host "[$($currentTime.ToString('HH:mm'))] Active - $minutesLeft min left" -ForegroundColor DarkGray
           }
           
-          # Background activity every 3 minutes
+          # Background activity
           if (($currentTime - $lastActivityTime).TotalSeconds -ge $bgActivityInterval) {
             1..100 | ForEach-Object { [math]::Sqrt($_) } | Out-Null
             
@@ -203,30 +222,31 @@ jobs:
             $lastActivityTime = $currentTime
           }
           
-          # Verify ngrok is running
-          $ngrokRunning = Get-Process -Name "ngrok" -ErrorAction SilentlyContinue
-          if (-not $ngrokRunning) {
-            # Double check by testing the API endpoint
-            $ngrokAlive = $false
-            try {
-              $testApi = Invoke-WebRequest -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 1 -ErrorAction SilentlyContinue
-              if ($testApi.StatusCode -eq 200) {
-                $ngrokAlive = $true
-              }
-            } catch {}
-            
-            if (-not $ngrokAlive) {
-              Write-Host "⚠️ Ngrok stopped - restarting..." -ForegroundColor Yellow
-              Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
-              Start-Sleep -Seconds 5
+          # Check ngrok health
+          $ngrokAlive = $false
+          try {
+            $testApi = Invoke-WebRequest -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 1 -ErrorAction SilentlyContinue
+            if ($testApi.StatusCode -eq 200) {
+              $ngrokAlive = $true
             }
+          } catch {
+            $ngrokRunning = Get-Process -Name "ngrok" -ErrorAction SilentlyContinue
+            if ($ngrokRunning) {
+              $ngrokAlive = $true
+            }
+          }
+          
+          if (-not $ngrokAlive) {
+            Write-Host "⚠️ Ngrok stopped - restarting..." -ForegroundColor Yellow
+            Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
+            Start-Sleep -Seconds 5
           }
           
           Start-Sleep -Seconds $mainLoopInterval
         }
         
         Write-Host ""
-        Write-Host "⏱️ Session time expired" -ForegroundColor Yellow
+        Write-Host "⏱️ Session expired" -ForegroundColor Yellow
     
     - name: Cleanup
       if: always()
@@ -234,4 +254,4 @@ jobs:
       run: |
         Write-Host "🧹 Cleanup..." -ForegroundColor Gray
         Get-Process -Name "ngrok" -ErrorAction SilentlyContinue | Stop-Process -Force
-        Write-Host "✅ Done"s
+        Write-Host "✅ Done"
